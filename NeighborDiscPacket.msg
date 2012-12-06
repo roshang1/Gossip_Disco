@@ -13,24 +13,21 @@
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 // 
 
-package node.application.disco;
+cplusplus {{
+#include "ApplicationPacket_m.h"
+}}
+packet ApplicationPacket;
 
-simple Disco like node.application.iApplication {
-    parameters:
-        string applicationID = default("Disco");
-        bool collectTraceInfo = default(true);
-        bool isSink = default(false);
-		int packetHeaderOverhead = default (8);
-		int priority = default (1);
-		int constantDataPayload = default (4);
-        
-        string neighbourCheckInterval = default("5s"); 
-        string gossipInterval = default("6s");
-       	double xi = default(10);
-    gates:
-        output toCommunicationModule;
-        input fromCommunicationModule;
-	output toSensorDeviceManager;
-	input fromSensorDeviceManager;
-	input fromResourceManager;
+struct Schedule {
+	int primePair[2];
+	long currentSlotNo;
+	simtime_t currentTime;
+};
+
+//
+// TODO generated message class
+//
+packet NeighborDiscPacket extends ApplicationPacket {
+    Schedule nodeSchedule;
+    bool request;
 }
