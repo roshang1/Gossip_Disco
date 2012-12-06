@@ -16,7 +16,7 @@ int primePairs[4][2] = {
 int totalPrimes = 4;
 
 enum TIMERS {
-	START_OF_SLOT = 1, GO_TO_SLEEP = 2
+	START_OF_SLOT = 1, GO_TO_SLEEP = 2, NO_OPERATION= 3
 };
 
 enum PACKET_TYPE {
@@ -26,13 +26,14 @@ enum PACKET_TYPE {
 class Disco: public VirtualApplication {
 private:
 	int packetsSent;
-	simtime_t slotDuration, gossipInterval;
+	simtime_t slotDuration, gossipInterval, slotEdge;
 	double si, wi;
 	cModule *node, *wchannel, *network;
 	int primePair[2];
 	long counter;
-	bool isAsleep;
+	bool isAsleep, isSlave, shallGossip;
 	map<int, Schedule> neighborSchedules;
+	map<int, int> nextRendezvous;
 
 	double unifRandom();
 protected:
@@ -44,5 +45,6 @@ protected:
 	void fromNetworkLayer(ApplicationPacket *, const char *, double, double);
 	DataPacket* createDataPacket(PACKET_TYPE type, GossipData& extra, unsigned int seqNum);
 	NeighborDiscPacket* createNeighborDiscPacket(PACKET_TYPE type, Schedule& schedule, bool request, unsigned int seqNum);
+	void predictFutureRendezvous(Schedule* schedule);
 };
 #endif
