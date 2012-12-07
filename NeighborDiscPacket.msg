@@ -29,5 +29,5 @@ struct Schedule {
 //
 packet NeighborDiscPacket extends ApplicationPacket {
     Schedule nodeSchedule;
-    bool request;
+    bool requestType;
 }

@@ -23,6 +23,13 @@ enum PACKET_TYPE {
 	NEIGHBOR_DISC_PACKET = 1, DATA_PACKET = 2
 };
 
+struct RendezvousSchedule {
+	// Map of rendezvous slot no to
+	// gap between two rendezvous.
+	map<long, long> slotNos;
+	bool adjustSlotSize;
+};
+
 class Disco: public VirtualApplication {
 private:
 	int packetsSent;
@@ -31,9 +38,9 @@ private:
 	cModule *node, *wchannel, *network;
 	int primePair[2];
 	long counter;
-	bool isAsleep, isSlave, shallGossip;
+	bool isAsleep, shallGossip, stopNeighborDisc;
 	map<int, Schedule> neighborSchedules;
-	map<int, int> nextRendezvous;
+	map<int, RendezvousSchedule> rendezvousPerNeighbor;
 
 	double unifRandom();
 protected:
@@ -45,6 +52,8 @@ protected:
 	void fromNetworkLayer(ApplicationPacket *, const char *, double, double);
 	DataPacket* createDataPacket(PACKET_TYPE type, GossipData& extra, unsigned int seqNum);
 	NeighborDiscPacket* createNeighborDiscPacket(PACKET_TYPE type, Schedule& schedule, bool request, unsigned int seqNum);
-	void predictFutureRendezvous(Schedule* schedule);
+	RendezvousSchedule* predictFutureRendezvous(Schedule*, bool);
+	const char* getAddressAsString(int);
+	void initiateGossip(list<int>);
 };
 #endif
