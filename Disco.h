@@ -56,7 +56,7 @@ private:
 	int lastSeq, lastPeer;
 
 	//Statistics
-	int gSend, gReceive, gForward;
+	int gSend, gReceive, gForward, packetsTrans, packetsRecvd;
 	int rendezvousCount, lastRendezvousSlotNo, rendezvousDuringND;
 	simtime_t lastRendezvous, avgDelayInTime;
 	double avgDelayInSlotNos;

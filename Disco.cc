@@ -70,6 +70,7 @@ void Disco::startup() {
 	maxH = (int)( (topX + topY) / nodeSeparation );
 
 	xi = unifRandom() * 100000;
+	//xi = (self == 0) ? 1 : 0;
 	wi = 1.0;
 	trace() << "Initial values: xi " << xi  << " " << wi << " " << maxH;
 	trace() << "Initial delay " << startupDelay << " prime1 " << primePair[0] << " prime2 " << primePair[1];
@@ -77,15 +78,13 @@ void Disco::startup() {
 
 	isAsleep = false;
 	shallGossip = false;
-	stopNeighborDisc = false;
-
 
 	lastSeq = lastPeer = -1;
 
 	out << startupDelay; temp = out.str(); temp += "ms";
 	setTimer(START_OF_SLOT, STR_SIMTIME(temp.c_str()));
 
-	temp = "100s";
+	temp = "200s";
 	setTimer(GENERATE_SAMPLE, STR_SIMTIME(temp.c_str()));
 	setTimer(TEST, STR_SIMTIME(temp.c_str()));
 
@@ -94,6 +93,7 @@ void Disco::startup() {
 
 	//Statistics
 	gSend = gReceive = gForward = 0;
+	packetsTrans = packetsRecvd = 0;
 	rendezvousCount = 0;
 	lastRendezvousSlotNo = avgDelayInSlotNos = rendezvousDuringND = 0;
 	lastRendezvous = avgDelayInTime = 0;
@@ -119,7 +119,6 @@ void Disco::timerFiredCallback(int type) {
 		if(counter == 0)
 			trace() << "Slot starts. Slot No = " << counter;
 		counter++;
-		stopNeighborDisc = false;
 
 		if(counter % primePair[0] == 0 || counter % primePair[1] == 0) {
 			isNeighborAwake = adjustSlotSize = false;
@@ -153,14 +152,15 @@ void Disco::timerFiredCallback(int type) {
 
 			//Wake up and transmit
 			trace() << "Up." << counter;
-				if (unifRandom() > 0.5 ) {
-					toNetworkLayer(createRadioCommand(SET_STATE, TX));
-					transmitBeacon();
-				} else {
-					toNetworkLayer(createRadioCommand(SET_STATE, RX));
-					temp = "3ms";
-					setTimer(TRANSMIT_BEACON, STR_SIMTIME(temp.c_str()));
-				}
+			//To Do: Different behaviour of radio at startup while in neighbor disc or gossip phase.
+			if (unifRandom() > 0.5 ) {
+				toNetworkLayer(createRadioCommand(SET_STATE, TX));
+				transmitBeacon();
+			} else {
+				toNetworkLayer(createRadioCommand(SET_STATE, RX));
+				//temp = "3ms";
+				//setTimer(TRANSMIT_BEACON, STR_SIMTIME(temp.c_str()));
+			}
 
 			isAsleep = false;
 			if(isNeighborAwake) {
@@ -191,7 +191,6 @@ void Disco::timerFiredCallback(int type) {
 		//trace() << "No operation.";
 		setTimer(START_OF_SLOT, slotDuration);
 		counter++;
-		stopNeighborDisc = true;
 		break;
 	case TRANSMIT_BEACON:
 		transmitBeacon();
@@ -266,6 +265,7 @@ void Disco::initiateGossip(list<int> awakePeers) {
 		////trace() << "Initiator: Try gossip with " << (*it);
 		if( !msgQueues[*it].msgs.empty() ) {
 			//gSend++;
+			packetsTrans++;
 			toNetworkLayer(createDataPacket(DATA_PACKET, msgQueues[*it].msgs.front(), 0, packetsSent++), getAddressAsString(*it) );
 			msgQueues[*it].msgs.pop();
 /*			if( !msgQueues[*it].msgs.empty() ) {
@@ -281,6 +281,7 @@ void Disco::initiateGossip(list<int> awakePeers) {
 			send.wi = 3;
 			send.targetX = 3.0;
 			send.targetY = 4.0;
+			packetsTrans++;
 			toNetworkLayer(createDataPacket(DATA_PACKET, send, 0, packetsSent++), getAddressAsString(*it) );
 		}
 	}
@@ -342,10 +343,6 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 
 	switch (msgType) {
 		case NEIGHBOR_DISC_PACKET:
-			if(stopNeighborDisc) {
-				//trace() << "Neighbor disc stopped. Received packet from	" << source;
-				break;
-			}
 			rcvPacket = check_and_cast<NeighborDiscPacket*> (genericPacket);
 			//Save neighbors schedule if it is being discovered for the first time.
 			if(neighborProfiles.count(peer) == 0) {
@@ -361,29 +358,27 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 				//predictedRedezvous->adjustSlotSize = rcvPacket->getRequestType();
 				rendezvousPerNeighbor[peer] = *predictedRedezvous;
 				msgQueues[peer] = *(new MsgQueue());
+			}
+			//Respond with schedule if neighbor requested for it.
+			if(rcvPacket->getRequestType()) {
+				Schedule mySchedule; //= new Schedule();
+				mySchedule.primePair[0] = primePair[0];
+				mySchedule.primePair[1] = primePair[1];
+				mySchedule.currentSlotNo = counter;
 
+				NodeProfile myProfile;
+				myProfile.x = mobilityModule->getLocation().x;
+				myProfile.y = mobilityModule->getLocation().y;
 
-				//Respond with schedule if neighbor requested for it.
-				if(rcvPacket->getRequestType()) {
-					Schedule mySchedule; //= new Schedule();
-					mySchedule.primePair[0] = primePair[0];
-					mySchedule.primePair[1] = primePair[1];
-					mySchedule.currentSlotNo = counter;
-
-					NodeProfile myProfile;
-					myProfile.x = mobilityModule->getLocation().x;
-					myProfile.y = mobilityModule->getLocation().y;
-
-					trace() << "Respond with schedule.";
-					toNetworkLayer(createNeighborDiscPacket(NEIGHBOR_DISC_PACKET, mySchedule, myProfile, false, packetsSent++), source);
-				}
+				trace() << "Respond with schedule to " << source;
+				toNetworkLayer(createNeighborDiscPacket(NEIGHBOR_DISC_PACKET, mySchedule, myProfile, false, packetsSent++), source);
 			}
 			break;
 
 		case DATA_PACKET:
 			dataPacket = check_and_cast<DataPacket*> (genericPacket);
 			data = &(dataPacket->getExtraData());
-
+			packetsRecvd++;
 			if( data->H != 0 ) {
 				gReceive++;
 				//trace() << "Got msg from " << source << " H " << data->H;
@@ -431,6 +426,7 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 				////trace() << "Receiver: Try gossip with " << peer;
 				if ( !msgQueues[peer].msgs.empty() ) {
 				//	gSend++;
+					packetsTrans++;
 					toNetworkLayer(createDataPacket(DATA_PACKET, msgQueues[peer].msgs.front(), dataPacket->getExchangeNo() + 1, packetsSent++), source);
 					msgQueues[peer].msgs.pop();
 	/*				if ( !msgQueues[peer].msgs.empty() ) {
@@ -445,6 +441,7 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 					send.wi = 3;
 					send.targetX = 3.0;
 					send.targetY = 4.0;
+					packetsTrans++;
 					toNetworkLayer(createDataPacket(DATA_PACKET, send, dataPacket->getExchangeNo() + 1, packetsSent++), source );
 				}
 
@@ -461,25 +458,32 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 }
 
 RendezvousSchedule* Disco::predictFutureRendezvous(Schedule* schedule, bool isRequest) {
-	int diff = counter - schedule->currentSlotNo;
-	int c0, c1, b0, b1, B0, B1, B, z, x0, x1;
+	int mySlotNo = counter;
+	int diff, c0, c1, b0, b1, B0, B1, B, z, x0, x1;
 	int firstRendezvous;
 	int i, j;
 	double remainder;
 	RendezvousSchedule *nextRendezvous = new RendezvousSchedule();
 
+/*	if(counter % primePair[0] != 0 && counter % primePair[1] != 0)
+		mySlotNo--; //Msg was received at the end of the awake slot and counter was incremented after that, fix it.
+	diff = mySlotNo - schedule->currentSlotNo;*/
+
+	diff = counter - schedule->currentSlotNo;
+
+	//Align the nodes properly.
 	if( isRequest && diff <= 0 )
 		diff++;
 	else if( !isRequest && diff > 0 )
 		diff--;
 
 	if(diff > 0) {
-		trace() << "Diff " << diff;
+		trace() << "Ctr " << counter << " mySNo " << mySlotNo << " N's SNo " << schedule->currentSlotNo << " Diff " << diff;
 		c0 = 0;
 		c1 = diff;
 		nextRendezvous->adjustSlotSize = true;
 	} else {
-		trace() << "Diff " << diff;
+		trace() << "Slot no " << counter << " Neighbor's slot no " << schedule->currentSlotNo << "Diff " << diff;
 		c0 = diff * -1;
 		c1 = 0;
 		nextRendezvous->adjustSlotSize = false;
@@ -567,6 +571,7 @@ void Disco::finishSpecific() {
 
 	for(map<int, MsgQueue>::iterator it = msgQueues.begin(); it != msgQueues.end(); it++) {
 		aQueue = &(it->second);
+		trace() << "QueueSize to " << it->first << " = " << aQueue->msgs.size();
 		while( !aQueue->msgs.empty() ) {
 			xi += aQueue->msgs.front().xi;
 			wi += aQueue->msgs.front().wi;
@@ -574,7 +579,6 @@ void Disco::finishSpecific() {
 			totalQueueSize++;
 		}
 	}
-	trace() << "QueueSize " << totalQueueSize;
 	trace() << "Final Average " << xi/wi << " " << xi << " " << wi;
 
 
@@ -585,6 +589,8 @@ void Disco::finishSpecific() {
 	collectOutput("Stats", "AvgDelayInSlotNo ", avgDelayInSlotNos);
 	collectOutput("Stats", "AvgDelayInTime ", SIMTIME_DBL(avgDelayInTime));
 	collectOutput("Stats", "QueueSize ", totalQueueSize);
+	collectOutput("Stats", "PacketsTrans ", packetsTrans);
+	collectOutput("Stats", "PacketsRecvd ", packetsRecvd);
 }
 
 void Disco::handleSensorReading(SensorReadingMessage * reading) {
