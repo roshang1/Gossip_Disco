@@ -21,7 +21,12 @@ packet ApplicationPacket;
 struct Schedule {
 	int primePair[2];
 	long currentSlotNo;
-	simtime_t currentTime;
+	simtime_t discAt;
+};
+
+struct NodeProfile {
+    double x;
+    double y;
 };
 
 //
@@ -29,5 +34,6 @@ struct Schedule {
 //
 packet NeighborDiscPacket extends ApplicationPacket {
     Schedule nodeSchedule;
+    NodeProfile nodeProfile;
     bool requestType;
 }

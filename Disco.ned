@@ -25,8 +25,9 @@ simple Disco like node.application.iApplication {
 		int constantDataPayload = default (4);
         
         string slotDuration = default("15ms");
-        string gossipInterval = default("6s");
+        string gossipInterval = default("3s");
        	double xi = default(10);
+       	int nodeSeparation = default(20);	
     gates:
         output toCommunicationModule;
         input fromCommunicationModule;

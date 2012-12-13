@@ -31,4 +31,5 @@ struct GossipData {
 //
 packet DataPacket extends ApplicationPacket {
     GossipData extraData;
+    int exchangeNo;
 }
