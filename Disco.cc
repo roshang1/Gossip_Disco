@@ -189,8 +189,56 @@ void Disco::timerFiredCallback(int type) {
 		break;
 	case NO_OPERATION:
 		//trace() << "No operation.";
-		setTimer(START_OF_SLOT, slotDuration);
 		counter++;
+		if(counter % primePair[0] == 0 || counter % primePair[1] == 0) {
+			isNeighborAwake = adjustSlotSize = false;
+			//Check in any neighbor is awake, either wait for gossip msg or initiate gossip with that peer.
+			for(map<int, RendezvousSchedule>::iterator it = rendezvousPerNeighbor.begin(); it != rendezvousPerNeighbor.end(); it++) {
+				if(it->second.slotNos.count(counter) > 0) {
+					diffBetweenRendezvous = it->second.slotNos[counter];
+					trace() << "Rendezvous slot. " << counter << " " << diffBetweenRendezvous;
+					trace() << "Talk to " << it->first  << " is slave? " << it->second.adjustSlotSize;
+					it->second.slotNos.erase(counter);
+					it->second.slotNos[counter + diffBetweenRendezvous] = diffBetweenRendezvous;
+					trace() << "Next rendezvous slot. " << counter + diffBetweenRendezvous << " " << diffBetweenRendezvous;
+
+					if(it->second.adjustSlotSize) { //Do not touch the radio in the next slot.
+						//Listen on the radio for two slots and wait for a gossip msg.
+						adjustSlotSize = true;
+					} else {
+						//Initiate gossip with selected peers.
+						//Generally there is only one but there could be more than one.
+						awakePeers.push_back(it->first);
+					}
+					isNeighborAwake = true;
+				}
+			}
+
+			if(!adjustSlotSize) {
+				setTimer(START_OF_SLOT, slotDuration);
+			} else {
+				setTimer(NO_OPERATION, slotDuration);
+			}
+
+			//Wake up and transmit
+			trace() << "Up." << counter;
+
+			isAsleep = false;
+			if(isNeighborAwake) {
+				//(x + y + z)/3 = (2((x+y)/2) + z)/3;
+				sum = (rendezvousCount * avgDelayInSlotNos) + (counter - lastRendezvousSlotNo);
+				totalTime = (rendezvousCount * avgDelayInTime) + (getClock() - lastRendezvous);
+				rendezvousCount++;
+				avgDelayInSlotNos = sum / rendezvousCount;
+				avgDelayInTime = totalTime / rendezvousCount;
+				lastRendezvousSlotNo = counter;
+				lastRendezvous = getClock();
+
+				initiateGossip(awakePeers);
+			}
+		} else {
+			setTimer(START_OF_SLOT, slotDuration);
+		}
 		break;
 	case TRANSMIT_BEACON:
 		transmitBeacon();
@@ -580,7 +628,6 @@ void Disco::finishSpecific() {
 		}
 	}
 	trace() << "Final Average " << xi/wi << " " << xi << " " << wi;
-
 
 	collectOutput("Stats", "Sent ", gSend);
 	collectOutput("Stats", "Received ", gReceive);
