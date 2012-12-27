@@ -61,6 +61,7 @@ void Disco::startup() {
 	primePair[0] = primePairs[index][0];
 	primePair[1] = primePairs[index][1];
 	counter = 0;
+	lastAwakeSlot = -1;
 
 	cModule* node = getParentModule();
 	cModule* network = node->getParentModule();
@@ -78,6 +79,7 @@ void Disco::startup() {
 
 	isAsleep = false;
 	shallGossip = false;
+	isNoOpMode = false;
 
 	lastSeq = lastPeer = -1;
 
@@ -120,8 +122,10 @@ void Disco::timerFiredCallback(int type) {
 			trace() << "Slot starts. Slot No = " << counter;
 		counter++;
 
+		isNoOpMode = false;
 		if(counter % primePair[0] == 0 || counter % primePair[1] == 0) {
 			isNeighborAwake = adjustSlotSize = false;
+			lastAwakeSlot = counter;
 			//Check in any neighbor is awake, either wait for gossip msg or initiate gossip with that peer.
 			for(map<int, RendezvousSchedule>::iterator it = rendezvousPerNeighbor.begin(); it != rendezvousPerNeighbor.end(); it++) {
 				if(it->second.slotNos.count(counter) > 0) {
@@ -192,6 +196,8 @@ void Disco::timerFiredCallback(int type) {
 		counter++;
 		if(counter % primePair[0] == 0 || counter % primePair[1] == 0) {
 			isNeighborAwake = adjustSlotSize = false;
+			lastAwakeSlot = counter;
+			isNoOpMode = false;
 			//Check in any neighbor is awake, either wait for gossip msg or initiate gossip with that peer.
 			for(map<int, RendezvousSchedule>::iterator it = rendezvousPerNeighbor.begin(); it != rendezvousPerNeighbor.end(); it++) {
 				if(it->second.slotNos.count(counter) > 0) {
@@ -237,6 +243,7 @@ void Disco::timerFiredCallback(int type) {
 				initiateGossip(awakePeers);
 			}
 		} else {
+			isNoOpMode = true;
 			setTimer(START_OF_SLOT, slotDuration);
 		}
 		break;
@@ -284,7 +291,7 @@ void Disco::transmitBeacon() {
 	Schedule mySchedule;//= new Schedule();
 	mySchedule.primePair[0] = primePair[0];
 	mySchedule.primePair[1] = primePair[1];
-	mySchedule.currentSlotNo = counter;
+	mySchedule.currentSlotNo = lastAwakeSlot;
 
 	NodeProfile myProfile;
 	myProfile.x = mobilityModule->getLocation().x;
@@ -391,6 +398,8 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 
 	switch (msgType) {
 		case NEIGHBOR_DISC_PACKET:
+			if(isNoOpMode)
+				return;
 			rcvPacket = check_and_cast<NeighborDiscPacket*> (genericPacket);
 			//Save neighbors schedule if it is being discovered for the first time.
 			if(neighborProfiles.count(peer) == 0) {
@@ -412,7 +421,7 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 				Schedule mySchedule; //= new Schedule();
 				mySchedule.primePair[0] = primePair[0];
 				mySchedule.primePair[1] = primePair[1];
-				mySchedule.currentSlotNo = counter;
+				mySchedule.currentSlotNo = lastAwakeSlot;
 
 				NodeProfile myProfile;
 				myProfile.x = mobilityModule->getLocation().x;
@@ -517,24 +526,29 @@ RendezvousSchedule* Disco::predictFutureRendezvous(Schedule* schedule, bool isRe
 		mySlotNo--; //Msg was received at the end of the awake slot and counter was incremented after that, fix it.
 	diff = mySlotNo - schedule->currentSlotNo;*/
 
-	diff = counter - schedule->currentSlotNo;
+	diff = lastAwakeSlot - schedule->currentSlotNo;
+	trace() << "Ctr " << counter << " Last up slot " << lastAwakeSlot << " N's SNo " << schedule->currentSlotNo << " Diff " << diff;
 
 	//Align the nodes properly.
-	if( isRequest && diff <= 0 )
+	if( isRequest && diff < 0 )
 		diff++;
 	else if( !isRequest && diff > 0 )
 		diff--;
 
 	if(diff > 0) {
-		trace() << "Ctr " << counter << " mySNo " << mySlotNo << " N's SNo " << schedule->currentSlotNo << " Diff " << diff;
+		trace() << "Ctr " << counter << " Last up slot " << lastAwakeSlot << " N's SNo " << schedule->currentSlotNo << " Diff after update " << diff;
 		c0 = 0;
 		c1 = diff;
 		nextRendezvous->adjustSlotSize = true;
-	} else {
-		trace() << "Slot no " << counter << " Neighbor's slot no " << schedule->currentSlotNo << "Diff " << diff;
+	} else if(diff < 0){
+		trace() << "Ctr " << counter << " Last up slot " << lastAwakeSlot << " N's SNo " << schedule->currentSlotNo << " Diff after update " << diff;
 		c0 = diff * -1;
 		c1 = 0;
 		nextRendezvous->adjustSlotSize = false;
+	} else {
+		trace() << "Ctr " << counter << " Last up slot " << lastAwakeSlot << " N's SNo " << schedule->currentSlotNo << " Diff after update " << diff;
+		c1 = c0 = 0;
+		nextRendezvous->adjustSlotSize = isRequest;
 	}
 
 	for(i = 0; i < 2; i++) {
@@ -550,7 +564,7 @@ RendezvousSchedule* Disco::predictFutureRendezvous(Schedule* schedule, bool isRe
 					if(remainder == 0.0) {
 						z = B1 * x1 * c1;
 						firstRendezvous = z % B;
-						while(firstRendezvous <= counter) {
+						while(firstRendezvous <= lastAwakeSlot) {
 							firstRendezvous += B;
 						}
 						//Map rendezvousSlotNo to difference between rendezvous;
@@ -567,7 +581,7 @@ RendezvousSchedule* Disco::predictFutureRendezvous(Schedule* schedule, bool isRe
 						z = B0 * x0 * c0;
 						firstRendezvous = z % B;
 						firstRendezvous -= c0;
-						while(firstRendezvous <= counter) {
+						while(firstRendezvous <= lastAwakeSlot) {
 							firstRendezvous += B;
 						}
 						//Map rendezvousSlotNo to difference between rendezvous;

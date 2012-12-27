@@ -44,8 +44,8 @@ private:
 	double xi, wi;
 	cModule *node, *wchannel, *network;
 	int primePair[2];
-	long counter;
-	bool isAsleep, shallGossip, stopNeighborDisc;
+	long counter, lastAwakeSlot;
+	bool isAsleep, shallGossip, stopNeighborDisc, isNoOpMode;
 	int topX, topY;
 	int maxH;
 	//Needed just for testing, not required practically.
