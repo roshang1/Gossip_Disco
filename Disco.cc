@@ -82,6 +82,8 @@ void Disco::startup() {
 	isNoOpMode = false;
 
 	lastSeq = lastPeer = -1;
+	lastAverage = xi/wi;
+	stopAfter = 0;
 
 	out << startupDelay; temp = out.str(); temp += "ms";
 	setTimer(START_OF_SLOT, STR_SIMTIME(temp.c_str()));
@@ -89,6 +91,8 @@ void Disco::startup() {
 	temp = "200s";
 	setTimer(GENERATE_SAMPLE, STR_SIMTIME(temp.c_str()));
 	setTimer(TEST, STR_SIMTIME(temp.c_str()));
+	temp = "150s";
+	setTimer(SAMPLE_AVG, STR_SIMTIME(temp.c_str()));
 
 	//trace() << "Down." << counter;
 	toNetworkLayer(createRadioCommand(SET_STATE, SLEEP));
@@ -105,7 +109,7 @@ void Disco::startup() {
 
 void Disco::timerFiredCallback(int type) {
 	int i = 0;
-	int diffBetweenRendezvous;
+	int diffBetweenRendezvous, neighborsSlot;
 	bool adjustSlotSize;
 	list<int> awakePeers;
 	string temp;
@@ -117,6 +121,12 @@ void Disco::timerFiredCallback(int type) {
 
 	//Set the timer asap in all the cases.
 	switch (type) {
+	case SAMPLE_AVG:
+	//	temp = "10s";
+//		trace() << "Average " << xi/wi << " " << xi << " " << wi << " " << ( ((xi / wi) - lastAverage) / lastAverage * 100) << " " << ((xi / wi) - lastAverage);
+		//lastAverage = xi / wi;
+		//setTimer(SAMPLE_AVG, STR_SIMTIME(temp.c_str()));
+		break;
 	case START_OF_SLOT:
 		if(counter == 0)
 			trace() << "Slot starts. Slot No = " << counter;
@@ -127,7 +137,7 @@ void Disco::timerFiredCallback(int type) {
 			isNeighborAwake = adjustSlotSize = false;
 			lastAwakeSlot = counter;
 			//Check in any neighbor is awake, either wait for gossip msg or initiate gossip with that peer.
-			for(map<int, RendezvousSchedule>::iterator it = rendezvousPerNeighbor.begin(); it != rendezvousPerNeighbor.end(); it++) {
+/*			for(map<int, RendezvousSchedule>::iterator it = rendezvousPerNeighbor.begin(); it != rendezvousPerNeighbor.end(); it++) {
 				if(it->second.slotNos.count(counter) > 0) {
 					diffBetweenRendezvous = it->second.slotNos[counter];
 					trace() << "Rendezvous slot. " << counter << " " << diffBetweenRendezvous;
@@ -136,6 +146,23 @@ void Disco::timerFiredCallback(int type) {
 					it->second.slotNos[counter + diffBetweenRendezvous] = diffBetweenRendezvous;
 					trace() << "Next rendezvous slot. " << counter + diffBetweenRendezvous << " " << diffBetweenRendezvous;
 
+					if(it->second.adjustSlotSize) { //Do not touch the radio in the next slot.
+						//Listen on the radio for two slots and wait for a gossip msg.
+						adjustSlotSize = true;
+					} else {
+						//Initiate gossip with selected peers.
+						//Generally there is only one but there could be more than one.
+						awakePeers.push_back(it->first);
+					}
+					isNeighborAwake = true;
+				}
+			}*/
+
+			for(map<int, RendezvousSchedule>::iterator it = rendezvousPerNeighbor.begin(); it != rendezvousPerNeighbor.end(); it++) {
+				neighborsSlot = counter - it->second.diff;
+				if(neighborsSlot % it->second.primes[0] == 0 || neighborsSlot % it->second.primes[1] == 0) {
+					trace() << "Rendezvous slot. " << counter << " " << neighborsSlot;
+					trace() << "Talk to " << it->first  << " is slave? " << it->second.adjustSlotSize;
 					if(it->second.adjustSlotSize) { //Do not touch the radio in the next slot.
 						//Listen on the radio for two slots and wait for a gossip msg.
 						adjustSlotSize = true;
@@ -199,7 +226,7 @@ void Disco::timerFiredCallback(int type) {
 			lastAwakeSlot = counter;
 			isNoOpMode = false;
 			//Check in any neighbor is awake, either wait for gossip msg or initiate gossip with that peer.
-			for(map<int, RendezvousSchedule>::iterator it = rendezvousPerNeighbor.begin(); it != rendezvousPerNeighbor.end(); it++) {
+/*			for(map<int, RendezvousSchedule>::iterator it = rendezvousPerNeighbor.begin(); it != rendezvousPerNeighbor.end(); it++) {
 				if(it->second.slotNos.count(counter) > 0) {
 					diffBetweenRendezvous = it->second.slotNos[counter];
 					trace() << "Rendezvous slot. " << counter << " " << diffBetweenRendezvous;
@@ -208,6 +235,23 @@ void Disco::timerFiredCallback(int type) {
 					it->second.slotNos[counter + diffBetweenRendezvous] = diffBetweenRendezvous;
 					trace() << "Next rendezvous slot. " << counter + diffBetweenRendezvous << " " << diffBetweenRendezvous;
 
+					if(it->second.adjustSlotSize) { //Do not touch the radio in the next slot.
+						//Listen on the radio for two slots and wait for a gossip msg.
+						adjustSlotSize = true;
+					} else {
+						//Initiate gossip with selected peers.
+						//Generally there is only one but there could be more than one.
+						awakePeers.push_back(it->first);
+					}
+					isNeighborAwake = true;
+				}
+			}*/
+
+			for(map<int, RendezvousSchedule>::iterator it = rendezvousPerNeighbor.begin(); it != rendezvousPerNeighbor.end(); it++) {
+				neighborsSlot = counter - it->second.diff;
+				if(neighborsSlot % it->second.primes[0] == 0 || neighborsSlot % it->second.primes[1] == 0) {
+					trace() << "Rendezvous slot. " << counter << " " << neighborsSlot;
+					trace() << "Talk to " << it->first  << " is slave? " << it->second.adjustSlotSize;
 					if(it->second.adjustSlotSize) { //Do not touch the radio in the next slot.
 						//Listen on the radio for two slots and wait for a gossip msg.
 						adjustSlotSize = true;
@@ -279,7 +323,10 @@ void Disco::timerFiredCallback(int type) {
 			gSend++;
 			msgQueues[dest].msgs.push(send);
 		}
-		setTimer(GENERATE_SAMPLE, gossipInterval);
+		if(stopAfter > 0)
+			setTimer(GENERATE_SAMPLE, gossipInterval);
+		else
+			trace() << "STOP " << stopAfter;
 		break;
 	}
 }
@@ -301,7 +348,8 @@ void Disco::transmitBeacon() {
 }
 
 void Disco::initiateGossip(list<int> awakePeers) {
-
+	MsgQueue *aQueue;
+	bool sendDummy;
 /*	if(awakePeers.size() == 0) {
 		////trace() << "Did adjustment at " << rendezvousCount;
 		return;
@@ -329,15 +377,32 @@ void Disco::initiateGossip(list<int> awakePeers) {
 				msgQueues[*it].msgs.pop();
 			}*/
 		} else {
-			//Send dummy packet
-			GossipData send;
-			send.H = 0;
-			send.xi = 2;
-			send.wi = 3;
-			send.targetX = 3.0;
-			send.targetY = 4.0;
-			packetsTrans++;
-			toNetworkLayer(createDataPacket(DATA_PACKET, send, 0, packetsSent++), getAddressAsString(*it) );
+			sendDummy = true;
+			//Check if queue to any other neighbor is blotted, if yes, redirect msg to waken-up neighbor.
+			for(map<int, MsgQueue>::iterator it2 = msgQueues.begin(); it2 != msgQueues.end(); it2++) {
+				aQueue = &(it2->second);
+				if( aQueue->msgs.size() > 15 ) {
+					trace() << "Blotted queue to " << it2->first << " = " << aQueue->msgs.size();
+					trace() << "Redirect to " << (*it);
+					packetsTrans++;
+					toNetworkLayer(createDataPacket(DATA_PACKET, aQueue->msgs.front(), 0, packetsSent++), getAddressAsString(*it) );
+					aQueue->msgs.pop();
+					sendDummy = false;
+					break;
+				}
+			}
+
+			if(sendDummy) {
+				//Send dummy packet
+				GossipData send;
+				send.H = 0;
+				send.xi = 2;
+				send.wi = 3;
+				send.targetX = 3.0;
+				send.targetY = 4.0;
+				packetsTrans++;
+				toNetworkLayer(createDataPacket(DATA_PACKET, send, 0, packetsSent++), getAddressAsString(*it) );
+			}
 		}
 	}
 
@@ -388,6 +453,10 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 	RendezvousSchedule* predictedRedezvous;
 	GossipData* data;
 	int seq = genericPacket->getSequenceNumber();
+	bool sendDummy;
+	MsgQueue *aQueue;
+	double diff;
+	double neighborsAvg, myAvg;
 
 	if(seq == lastSeq && peer == lastPeer) {
 		trace() << "Duplicate hai duplicate!";
@@ -407,7 +476,8 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 					trace() << "Not a neighbor " << source;
 					break;
 				}
-				trace() << "Discovered a neighbor! " << peer;
+				stopAfter += 2;
+				trace() << "Discovered a neighbor! " << peer << " Stopping threshold " << stopAfter;
 				neighborSchedules[peer] = rcvPacket->getNodeSchedule();
 				neighborSchedules[peer].discAt = getClock();
 				neighborProfiles[peer] = rcvPacket->getNodeProfile();
@@ -442,8 +512,28 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 				//trace() << "Received " << data->xi << " " << data->wi << " H " << data->H << " from " << peer;
 				//trace() << "Before  " << xi << " " << wi << " Ratio " << xi/wi;
 				//trace() << "Keep " << (data->xi / data->H) << " " << (data->wi / data->H);
+
+				neighborsAvg =  (data->xi / data->wi);
+				myAvg = (xi / wi);
+			//	diff = abs( (double) (xi / wi ) - (data->xi / data->wi) );
+				diff = abs( (myAvg - neighborsAvg) / myAvg * 100 );
+				trace() << "Average " << xi / wi << " peer's " << data->xi / data->wi << " RelativeDiff " << diff << " stopAfter " << stopAfter;
+				if(diff <= 0.1)
+					stopAfter--;
+				else
+					stopAfter = neighborProfiles.size() * 2;
 				xi += (data->xi / data->H);
 				wi += (data->wi / data->H);
+
+/*				myAvg = (xi / wi);
+			//	diff = abs( (double) (xi / wi ) - (data->xi / data->wi) );
+				diff = abs( (myAvg - lastAverage) / myAvg * 100 );
+				trace() << "Average " << xi / wi << " last " << lastAverage << " RelativeDiff " << diff << " stopAfter " << stopAfter;
+				if(diff <= 0.1)
+					stopAfter--;
+				else
+					stopAfter = neighborProfiles.size() * 2;
+				lastAverage = xi / wi;*/
 				//trace() << "After  " << xi << " " << wi << " Ratio " << xi/wi;
 				if(data->H != 1) {
 					int dest = getPeer(data->targetX, data->targetY);
@@ -492,14 +582,32 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 						msgQueues[peer].msgs.pop();
 					}*/
 				} else {
-					GossipData send;
-					send.H = 0;
-					send.xi = 2;
-					send.wi = 3;
-					send.targetX = 3.0;
-					send.targetY = 4.0;
-					packetsTrans++;
-					toNetworkLayer(createDataPacket(DATA_PACKET, send, dataPacket->getExchangeNo() + 1, packetsSent++), source );
+					sendDummy = true;
+					//Check if queue to any other neighbor is blotted, if yes, redirect msg to waken-up neighbor.
+					for(map<int, MsgQueue>::iterator it2 = msgQueues.begin(); it2 != msgQueues.end(); it2++) {
+						aQueue = &(it2->second);
+						if( aQueue->msgs.size() > 15 ) {
+							trace() << "Blotted queue to " << it2->first << " = " << aQueue->msgs.size();
+							trace() << "Redirect to " << source;
+							packetsTrans++;
+							toNetworkLayer(createDataPacket(DATA_PACKET, aQueue->msgs.front(), dataPacket->getExchangeNo() + 1, packetsSent++), source);
+							aQueue->msgs.pop();
+							sendDummy = false;
+							break;
+						}
+					}
+
+					if(sendDummy) {
+						//Send dummy packet
+						GossipData send;
+						send.H = 0;
+						send.xi = 2;
+						send.wi = 3;
+						send.targetX = 3.0;
+						send.targetY = 4.0;
+						packetsTrans++;
+						toNetworkLayer(createDataPacket(DATA_PACKET, send, dataPacket->getExchangeNo() + 1, packetsSent++), source );
+					}
 				}
 
 /*				////trace() << "Receiver: After transmission.";
@@ -594,6 +702,9 @@ RendezvousSchedule* Disco::predictFutureRendezvous(Schedule* schedule, bool isRe
 		}
 	}
 
+	nextRendezvous->primes[0] = schedule->primePair[0];
+	nextRendezvous->primes[1] = schedule->primePair[1];
+	nextRendezvous->diff = diff;
 	return nextRendezvous;
 }
 

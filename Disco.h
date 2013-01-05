@@ -7,6 +7,7 @@
 
 #include <map>
 #include <queue>
+#include <cmath>
 
 using namespace std;
 
@@ -19,7 +20,7 @@ int primePairs[4][2] = {
 int totalPrimes = 4;
 
 enum TIMERS {
-	START_OF_SLOT = 1, GO_TO_SLEEP = 2, NO_OPERATION= 3, GENERATE_SAMPLE = 4, TRANSMIT_BEACON = 5, TEST = 6
+	START_OF_SLOT = 1, GO_TO_SLEEP = 2, NO_OPERATION= 3, GENERATE_SAMPLE = 4, TRANSMIT_BEACON = 5, TEST = 6, SAMPLE_AVG = 7
 };
 
 enum PACKET_TYPE {
@@ -31,6 +32,8 @@ struct RendezvousSchedule {
 	// gap between two rendezvous.
 	map<long, long> slotNos;
 	bool adjustSlotSize;
+	int primes[2];
+	int diff;
 };
 
 struct MsgQueue {
@@ -54,6 +57,7 @@ private:
 	map<int, RendezvousSchedule> rendezvousPerNeighbor;
 	map<int, MsgQueue> msgQueues;
 	int lastSeq, lastPeer;
+	int stopAfter;
 
 	//Statistics
 	int gSend, gReceive, gForward, packetsTrans, packetsRecvd;
@@ -61,6 +65,7 @@ private:
 	simtime_t lastRendezvous, avgDelayInTime;
 	double avgDelayInSlotNos;
 	bool shutNeighborDisc;
+	double lastAverage;
 
 	double unifRandom();
 protected:
