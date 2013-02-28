@@ -25,8 +25,8 @@ struct Schedule {
 };
 
 struct NodeProfile {
-    double x;
-    double y;
+    float x;
+    float y;
 };
 
 //

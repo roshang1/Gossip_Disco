@@ -21,9 +21,12 @@ packet ApplicationPacket;
 struct GossipData {
    	double xi;
    	double wi;
-   	int H;
-   	double targetX;
-   	double targetY;
+   	short H;
+   	short hops;
+   	short stopped;
+   	float targetX;
+   	float targetY;
+   	double averages[7];
 };
 
 //
@@ -31,5 +34,5 @@ struct GossipData {
 //
 packet DataPacket extends ApplicationPacket {
     GossipData extraData;
-    int exchangeNo;
+    short exchangeNo;
 }

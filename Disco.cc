@@ -24,13 +24,13 @@ int Disco::drawH() {
 	return H;
 }
 
-double* Disco::drawT() {
-	double x,y;
-	double myX = mobilityModule->getLocation().x;
-	double myY = mobilityModule->getLocation().y;
-	double* T = new double[2];
+float* Disco::drawT() {
+	float x,y;
+	float myX = mobilityModule->getLocation().x;
+	float myY = mobilityModule->getLocation().y;
+	float* T = new float[2];
 	int range = pow ( (int)par("nodeSeparation"), 2);
-	double dist;
+	float dist;
 
 	while(true) {
 		x = unifRandom() * topX;
@@ -43,6 +43,27 @@ double* Disco::drawT() {
 	T[1] = y;
 	//trace() << "x " << x << " y " << y;
 	return T;
+}
+
+double Disco::computeSigma(GossipData& packet) {
+	int i;
+	double sampleMean, sum, variance;
+	double myAvg = xi / wi;
+	int sampleCount = packet.hops < 7 ? packet.hops : 7;
+
+	sum = myAvg;
+	for(i = 0; i < sampleCount; i++){
+		sum += packet.averages[i];
+	}
+	sampleMean = sum / ( sampleCount + 1 ) ;
+
+	sum = pow((sampleMean - myAvg), 2);;
+	for(i = 0; i < sampleCount; i++){
+		sum += pow((sampleMean - packet.averages[i]), 2);
+	}
+	variance =  sum / ( sampleCount ) ; //Sample standard deviation
+
+	return sqrt(variance);
 }
 
 void Disco::startup() {
@@ -70,8 +91,10 @@ void Disco::startup() {
 	int nodeSeparation = par("nodeSeparation");
 	maxH = (int)( (topX + topY) / nodeSeparation );
 
-	xi = unifRandom() * 100000;
-	//xi = (self == 0) ? 1 : 0;
+	xi = par("xi");
+	if(xi == 10)
+		xi = unifRandom() * 100000;
+	//xi = (self == 0) ? 27 : 9;
 	wi = 1.0;
 	trace() << "Initial values: xi " << xi  << " " << wi << " " << maxH;
 	trace() << "Initial delay " << startupDelay << " prime1 " << primePair[0] << " prime2 " << primePair[1];
@@ -98,8 +121,8 @@ void Disco::startup() {
 	toNetworkLayer(createRadioCommand(SET_STATE, SLEEP));
 
 	//Statistics
-	gSend = gReceive = gForward = 0;
-	packetsTrans = packetsRecvd = 0;
+	gSend = gReceive = gForward = gReached = gMidway = 0;
+	packetsTrans = packetsRecvd = expectedTotalHops = totalHops = 0;
 	rendezvousCount = 0;
 	lastRendezvousSlotNo = avgDelayInSlotNos = rendezvousDuringND = 0;
 	lastRendezvous = avgDelayInTime = 0;
@@ -122,10 +145,10 @@ void Disco::timerFiredCallback(int type) {
 	//Set the timer asap in all the cases.
 	switch (type) {
 	case SAMPLE_AVG:
-	//	temp = "10s";
-//		trace() << "Average " << xi/wi << " " << xi << " " << wi << " " << ( ((xi / wi) - lastAverage) / lastAverage * 100) << " " << ((xi / wi) - lastAverage);
-		//lastAverage = xi / wi;
-		//setTimer(SAMPLE_AVG, STR_SIMTIME(temp.c_str()));
+		temp = "10s";
+		trace() << "Average " << xi/wi << " " << xi << " " << wi << " " << ( ((xi / wi) - lastAverage) / lastAverage * 100) << " " << ((xi / wi) - lastAverage);
+		lastAverage = xi / wi;
+		setTimer(SAMPLE_AVG, STR_SIMTIME(temp.c_str()));
 		break;
 	case START_OF_SLOT:
 		if(counter == 0)
@@ -303,7 +326,7 @@ void Disco::timerFiredCallback(int type) {
 		rendezvousDuringND = rendezvousCount;
 		break;
 	case GENERATE_SAMPLE:
-		double* T = drawT();
+		float* T = drawT();
 		int H = drawH();
 		int dest = getPeer(T[0], T[1]);
 
@@ -312,6 +335,9 @@ void Disco::timerFiredCallback(int type) {
 			GossipData send;
 
 			send.H = H - 1;
+			send.hops = 1;
+			send.stopped = 0;
+			send.averages[send.hops - 1] = xi / wi;
 			send.targetX = T[0];
 			send.targetY = T[1];
 			send.xi = ( ( (double) send.H )/ H ) * xi;
@@ -321,6 +347,7 @@ void Disco::timerFiredCallback(int type) {
 			xi = xi / H; wi = wi / H;
 			//trace() << "After  " << xi << " " << wi << " Ratio " << xi/wi;
 			gSend++;
+			expectedTotalHops += H;
 			msgQueues[dest].msgs.push(send);
 		}
 		if(stopAfter > 0)
@@ -396,6 +423,9 @@ void Disco::initiateGossip(list<int> awakePeers) {
 				//Send dummy packet
 				GossipData send;
 				send.H = 0;
+				send.hops = 1;
+				send.stopped = (stopAfter <= 0) ? -1 : 0;
+				send.averages[send.hops - 1] = xi / wi;
 				send.xi = 2;
 				send.wi = 3;
 				send.targetX = 3.0;
@@ -413,9 +443,9 @@ void Disco::initiateGossip(list<int> awakePeers) {
 	}*/
 }
 
-int Disco::getPeer(double targetX, double targetY) {
-	double x = mobilityModule->getLocation().x;
-	double y = mobilityModule->getLocation().y;
+int Disco::getPeer(float targetX, float targetY) {
+	float x = mobilityModule->getLocation().x;
+	float y = mobilityModule->getLocation().y;
 	double minDist = pow((x - targetX), 2) + pow((y - targetY), 2);
 	vector<int> peersCloseToT;
 	map<int, NodeProfile>::iterator it;
@@ -436,8 +466,8 @@ int Disco::getPeer(double targetX, double targetY) {
 }
 
 bool Disco::isWithinRange(NodeProfile* profile) {
-	double x = mobilityModule->getLocation().x;
-	double y = mobilityModule->getLocation().y;
+	float x = mobilityModule->getLocation().x;
+	float y = mobilityModule->getLocation().y;
 	double dist = pow((x - profile->x), 2) + pow((y - profile->y), 2);
 	double nodeSeparation = (double) par("nodeSeparation");
 	nodeSeparation += 2.0;
@@ -455,8 +485,9 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 	int seq = genericPacket->getSequenceNumber();
 	bool sendDummy;
 	MsgQueue *aQueue;
-	double diff;
+	double sigma;
 	double neighborsAvg, myAvg;
+	int i;
 
 	if(seq == lastSeq && peer == lastPeer) {
 		trace() << "Duplicate hai duplicate!";
@@ -476,7 +507,7 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 					trace() << "Not a neighbor " << source;
 					break;
 				}
-				stopAfter += 2;
+				stopAfter += 3;
 				trace() << "Discovered a neighbor! " << peer << " Stopping threshold " << stopAfter;
 				neighborSchedules[peer] = rcvPacket->getNodeSchedule();
 				neighborSchedules[peer].discAt = getClock();
@@ -513,7 +544,7 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 				//trace() << "Before  " << xi << " " << wi << " Ratio " << xi/wi;
 				//trace() << "Keep " << (data->xi / data->H) << " " << (data->wi / data->H);
 
-				neighborsAvg =  (data->xi / data->wi);
+			/*	neighborsAvg =  (data->xi / data->wi);
 				myAvg = (xi / wi);
 			//	diff = abs( (double) (xi / wi ) - (data->xi / data->wi) );
 				diff = abs( (myAvg - neighborsAvg) / myAvg * 100 );
@@ -521,10 +552,19 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 				if(diff <= 0.1)
 					stopAfter--;
 				else
-					stopAfter = neighborProfiles.size() * 2;
+					stopAfter = neighborProfiles.size() * 2;*/
+				trace() << "Sigma before : " << computeSigma(*data) << " for hops = " << data->hops << " with avg = " << xi / wi;
 				xi += (data->xi / data->H);
 				wi += (data->wi / data->H);
 
+				if(data->hops > 1) {
+					sigma = computeSigma(*data);
+					trace() << "Sigma after : " << sigma << " for hops = " << data->hops << " with avg = " << xi / wi;
+					if( ( xi >= 0 && sigma <= 0.01 && sigma >= 0.00001) || ((data->hops - 1) == data->stopped) )
+						stopAfter--;
+					else if(stopAfter < neighborProfiles.size() * 3)
+						stopAfter++;
+				}
 /*				myAvg = (xi / wi);
 			//	diff = abs( (double) (xi / wi ) - (data->xi / data->wi) );
 				diff = abs( (myAvg - lastAverage) / myAvg * 100 );
@@ -542,6 +582,12 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 						GossipData send;
 
 						send.H = data->H - 1;
+						send.hops = data->hops + 1;
+						send.stopped = data->stopped + ((stopAfter <= 0) ? 1 : 0);
+						for(i = 0; i < data->hops && i < 7; i++ )
+							send.averages[i] = data->averages[i];
+						if(send.hops <= 7)
+							send.averages[send.hops - 1] = xi / wi; //Or you can use hops % 7 to keep the last 7 values instead of first 7.
 						send.targetX = data->targetX;
 						send.targetY = data->targetY;
 						send.xi = ( ( (double) send.H )/ data->H ) *  data->xi;
@@ -551,11 +597,23 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 						gForward++;
 						msgQueues[dest].msgs.push(send);
 					} else {
+						gMidway++;
 						//trace() << "Couldn't send. Save everything that was sent.";
 						//trace() << "Before  " << xi << " " << wi << " Ratio " << xi/wi;
 						xi += ( ( (double) data->H - 1 )/ data->H ) *  data->xi;
 						wi += ( ( (double) data->H - 1 )/ data->H ) *  data->wi;
 						//trace() << "After  " << xi << " " << wi << " Ratio " << xi/wi;
+					}
+				} else {
+					//Packet has reached its destination.
+					gReached++;
+					totalHops += data->hops;
+				}
+			} else {
+				if(data->stopped == -1) {
+					stopAfter--;
+					if(stopAfter == 0){
+						trace() << "Forced stop.";
 					}
 				}
 			}
@@ -583,7 +641,7 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 					}*/
 				} else {
 					sendDummy = true;
-					//Check if queue to any other neighbor is blotted, if yes, redirect msg to waken-up neighbor.
+					//Check if queue to any other neighbor is blotted, if yes, redirect msg to woken-up neighbor.
 					for(map<int, MsgQueue>::iterator it2 = msgQueues.begin(); it2 != msgQueues.end(); it2++) {
 						aQueue = &(it2->second);
 						if( aQueue->msgs.size() > 15 ) {
@@ -601,6 +659,9 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 						//Send dummy packet
 						GossipData send;
 						send.H = 0;
+						send.hops = 1;
+						send.stopped = (stopAfter <= 0) ? -1 : 0;
+						send.averages[send.hops - 1] = xi / wi;
 						send.xi = 2;
 						send.wi = 3;
 						send.targetX = 3.0;
@@ -725,7 +786,7 @@ DataPacket* Disco::createDataPacket(PACKET_TYPE type, GossipData& extra, int exc
 	newPacket->setSequenceNumber(seqNum);
 	newPacket->setExtraData(extra);
 	newPacket->setExchangeNo(exchngNo);
-	newPacket->setByteLength(sizeof(GossipData) + sizeof(int)); // size of extradata.
+	newPacket->setByteLength(sizeof(GossipData) + sizeof(short)); // size of extradata.
 	return newPacket;
 }
 
@@ -757,12 +818,18 @@ void Disco::finishSpecific() {
 	collectOutput("Stats", "Sent ", gSend);
 	collectOutput("Stats", "Received ", gReceive);
 	collectOutput("Stats", "Forwarded ", gForward);
-	collectOutput("Stats", "Rendezvous ", rendezvousCount - rendezvousDuringND);
-	collectOutput("Stats", "AvgDelayInSlotNo ", avgDelayInSlotNos);
-	collectOutput("Stats", "AvgDelayInTime ", SIMTIME_DBL(avgDelayInTime));
-	collectOutput("Stats", "QueueSize ", totalQueueSize);
+	//collectOutput("Stats", "Rendezvous ", rendezvousCount - rendezvousDuringND);
+	//collectOutput("Stats", "AvgDelayInSlotNo ", avgDelayInSlotNos);
+	//collectOutput("Stats", "AvgDelayInTime ", SIMTIME_DBL(avgDelayInTime));
+	//collectOutput("Stats", "QueueSize ", totalQueueSize);
 	collectOutput("Stats", "PacketsTrans ", packetsTrans);
 	collectOutput("Stats", "PacketsRecvd ", packetsRecvd);
+	collectOutput("Stats", "TotalHopsOnDest", totalHops);
+	collectOutput("Stats", "TotalHopsOnSrc", expectedTotalHops);
+	collectOutput("Stats", "AvgHopsOnDest", ((double) totalHops) / gReached);
+	collectOutput("Stats", "AvgHopsOnSrc", ((double) expectedTotalHops) / gSend);
+	collectOutput("Stats", "AtFinalDest ", gReached);
+	collectOutput("Stats", "StoppedMidway ", gMidway);
 }
 
 void Disco::handleSensorReading(SensorReadingMessage * reading) {

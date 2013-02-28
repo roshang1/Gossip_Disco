@@ -60,8 +60,8 @@ private:
 	int stopAfter;
 
 	//Statistics
-	int gSend, gReceive, gForward, packetsTrans, packetsRecvd;
-	int rendezvousCount, lastRendezvousSlotNo, rendezvousDuringND;
+	int gSend, gReceive, gForward, gReached, gMidway, packetsTrans, packetsRecvd;
+	int rendezvousCount, lastRendezvousSlotNo, rendezvousDuringND, totalHops, expectedTotalHops;
 	simtime_t lastRendezvous, avgDelayInTime;
 	double avgDelayInSlotNos;
 	bool shutNeighborDisc;
@@ -81,9 +81,10 @@ protected:
 	const char* getAddressAsString(int);
 	void initiateGossip(list<int>);
 	int drawH();
-	double* drawT();
-	int getPeer(double, double);
+	float* drawT();
+	int getPeer(float, float);
 	bool isWithinRange(NodeProfile* profile);
+	double computeSigma(GossipData& packet);
 	void transmitBeacon();
 };
 #endif
