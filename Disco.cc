@@ -94,7 +94,7 @@ void Disco::startup() {
 	xi = par("xi");
 	if(xi == 10)
 		xi = unifRandom() * 100000;
-	//xi = (self == 0) ? 27 : 9;
+	//xi = (self == 0) ? 50 : 5;
 	wi = 1.0;
 	trace() << "Initial values: xi " << xi  << " " << wi << " " << maxH;
 	trace() << "Initial delay " << startupDelay << " prime1 " << primePair[0] << " prime2 " << primePair[1];
@@ -106,7 +106,10 @@ void Disco::startup() {
 
 	lastSeq = lastPeer = -1;
 	lastAverage = xi/wi;
-	stopAfter = 0;
+	stopGossip = false;
+	stopAt = 1;
+	forcedStopCounter = 0;
+	stopCounter = 0;
 
 	out << startupDelay; temp = out.str(); temp += "ms";
 	setTimer(START_OF_SLOT, STR_SIMTIME(temp.c_str()));
@@ -330,13 +333,13 @@ void Disco::timerFiredCallback(int type) {
 		int H = drawH();
 		int dest = getPeer(T[0], T[1]);
 
-		if (dest != -1) {
+		if (dest != -1 && !stopGossip) {
 			//trace() << "Sending to " << dest << " for location: " << T[0]  <<  " " << T[1] ;
 			GossipData send;
 
 			send.H = H - 1;
 			send.hops = 1;
-			send.stopped = 0;
+			send.stopped = stopGossip;
 			send.averages[send.hops - 1] = xi / wi;
 			send.targetX = T[0];
 			send.targetY = T[1];
@@ -350,10 +353,11 @@ void Disco::timerFiredCallback(int type) {
 			expectedTotalHops += H;
 			msgQueues[dest].msgs.push(send);
 		}
-		if(stopAfter > 0)
-			setTimer(GENERATE_SAMPLE, gossipInterval);
+		setTimer(GENERATE_SAMPLE, gossipInterval);
+/*		if(stopAfter > 0)
+
 		else
-			trace() << "STOP " << stopAfter;
+			trace() << "STOP " << stopAfter;*/
 		break;
 	}
 }
@@ -406,9 +410,10 @@ void Disco::initiateGossip(list<int> awakePeers) {
 		} else {
 			sendDummy = true;
 			//Check if queue to any other neighbor is blotted, if yes, redirect msg to waken-up neighbor.
+			//To Do: Change this, redirect to other close neighbor, if cannot be send absorb that packet at this node.
 			for(map<int, MsgQueue>::iterator it2 = msgQueues.begin(); it2 != msgQueues.end(); it2++) {
 				aQueue = &(it2->second);
-				if( aQueue->msgs.size() > 15 ) {
+				if( aQueue->msgs.size() > 10 ) {
 					trace() << "Blotted queue to " << it2->first << " = " << aQueue->msgs.size();
 					trace() << "Redirect to " << (*it);
 					packetsTrans++;
@@ -424,7 +429,7 @@ void Disco::initiateGossip(list<int> awakePeers) {
 				GossipData send;
 				send.H = 0;
 				send.hops = 1;
-				send.stopped = (stopAfter <= 0) ? -1 : 0;
+				send.stopped = stopGossip;
 				send.averages[send.hops - 1] = xi / wi;
 				send.xi = 2;
 				send.wi = 3;
@@ -507,8 +512,9 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 					trace() << "Not a neighbor " << source;
 					break;
 				}
-				stopAfter += 3;
-				trace() << "Discovered a neighbor! " << peer << " Stopping threshold " << stopAfter;
+				forcedStopCounter += 3;
+				stopAt += 1.0;
+				trace() << "Discovered a neighbor! " << peer << " Stopping threshold " << stopAt;
 				neighborSchedules[peer] = rcvPacket->getNodeSchedule();
 				neighborSchedules[peer].discAt = getClock();
 				neighborProfiles[peer] = rcvPacket->getNodeProfile();
@@ -553,17 +559,29 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 					stopAfter--;
 				else
 					stopAfter = neighborProfiles.size() * 2;*/
-				trace() << "Sigma before : " << computeSigma(*data) << " for hops = " << data->hops << " with avg = " << xi / wi;
+				//trace() << "Sigma before : " << computeSigma(*data) << " for hops = " << data->hops << " with avg = " << xi / wi;
 				xi += (data->xi / data->H);
 				wi += (data->wi / data->H);
 
 				if(data->hops > 1) {
 					sigma = computeSigma(*data);
 					trace() << "Sigma after : " << sigma << " for hops = " << data->hops << " with avg = " << xi / wi;
-					if( ( xi >= 0 && sigma <= 0.01 && sigma >= 0.00001) || ((data->hops - 1) == data->stopped) )
-						stopAfter--;
-					else if(stopAfter < neighborProfiles.size() * 3)
-						stopAfter++;
+					if( sigma <= 100 ) {
+						stopCounter = stopCounter + (1 / stopAt); //Additive increase, it will go on increasing even after stopping, do u want to stop that?
+						if(stopCounter >= stopAt && !stopGossip) {
+							stopGossip = true;
+							trace() << "Stopped with sigma = " << sigma << " and avg = " << (xi / wi) << " stopCounter = " << stopCounter << " top = " << stopAt;
+						}
+					} else{
+						stopCounter = stopCounter / 2; //Multiplicative decrease.
+						if ( stopGossip && stopCounter < stopAt){
+							stopGossip = false;
+							trace() << "Restart with sigma = " << sigma << " and avg = " << (xi / wi) << " stopCounter = " << stopCounter << " top = " << stopAt;
+						}
+					}
+
+					if(forcedStopCounter < neighborProfiles.size() * 3)
+						forcedStopCounter++;
 				}
 /*				myAvg = (xi / wi);
 			//	diff = abs( (double) (xi / wi ) - (data->xi / data->wi) );
@@ -583,7 +601,7 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 
 						send.H = data->H - 1;
 						send.hops = data->hops + 1;
-						send.stopped = data->stopped + ((stopAfter <= 0) ? 1 : 0);
+						send.stopped = stopGossip;
 						for(i = 0; i < data->hops && i < 7; i++ )
 							send.averages[i] = data->averages[i];
 						if(send.hops <= 7)
@@ -609,11 +627,13 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 					gReached++;
 					totalHops += data->hops;
 				}
-			} else {
-				if(data->stopped == -1) {
-					stopAfter--;
-					if(stopAfter == 0){
-						trace() << "Forced stop.";
+			} else { //H == 0 -> dummy packet
+				if(data->stopped) { //If the neighbor has stopped.
+					if(forcedStopCounter > 0) {
+						forcedStopCounter--;
+					} else if(forcedStopCounter <= 0 && !stopGossip) {
+						stopGossip = true;
+						trace() << "Forced stop with sigma = " << sigma << " and avg = " << (xi / wi) << " stopCounter = " << stopCounter << " top = " << stopAt;
 					}
 				}
 			}
@@ -660,7 +680,7 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 						GossipData send;
 						send.H = 0;
 						send.hops = 1;
-						send.stopped = (stopAfter <= 0) ? -1 : 0;
+						send.stopped = stopGossip;
 						send.averages[send.hops - 1] = xi / wi;
 						send.xi = 2;
 						send.wi = 3;
@@ -685,7 +705,7 @@ void Disco::fromNetworkLayer(ApplicationPacket * genericPacket, const char *sour
 
 RendezvousSchedule* Disco::predictFutureRendezvous(Schedule* schedule, bool isRequest) {
 	int mySlotNo = counter;
-	int diff, c0, c1, b0, b1, B0, B1, B, z, x0, x1;
+	int actualDiff, diff, c0, c1, b0, b1, B0, B1, B, z, x0, x1;
 	int firstRendezvous;
 	int i, j;
 	double remainder;
@@ -695,7 +715,7 @@ RendezvousSchedule* Disco::predictFutureRendezvous(Schedule* schedule, bool isRe
 		mySlotNo--; //Msg was received at the end of the awake slot and counter was incremented after that, fix it.
 	diff = mySlotNo - schedule->currentSlotNo;*/
 
-	diff = lastAwakeSlot - schedule->currentSlotNo;
+	actualDiff = diff = lastAwakeSlot - schedule->currentSlotNo;
 	trace() << "Ctr " << counter << " Last up slot " << lastAwakeSlot << " N's SNo " << schedule->currentSlotNo << " Diff " << diff;
 
 	//Align the nodes properly.
@@ -704,12 +724,12 @@ RendezvousSchedule* Disco::predictFutureRendezvous(Schedule* schedule, bool isRe
 	else if( !isRequest && diff > 0 )
 		diff--;
 
-	if(diff > 0) {
+	if(actualDiff > 0) {
 		trace() << "Ctr " << counter << " Last up slot " << lastAwakeSlot << " N's SNo " << schedule->currentSlotNo << " Diff after update " << diff;
 		c0 = 0;
 		c1 = diff;
 		nextRendezvous->adjustSlotSize = true;
-	} else if(diff < 0){
+	} else if(actualDiff < 0){
 		trace() << "Ctr " << counter << " Last up slot " << lastAwakeSlot << " N's SNo " << schedule->currentSlotNo << " Diff after update " << diff;
 		c0 = diff * -1;
 		c1 = 0;
@@ -792,18 +812,29 @@ DataPacket* Disco::createDataPacket(PACKET_TYPE type, GossipData& extra, int exc
 
 void Disco::finishSpecific() {
 	MsgQueue *aQueue;
+	int diff;
 	int totalQueueSize = 0;
+	trace() << "Prime pair " << primePair[0] << " " << primePair[1];
 	trace() << "Total neighbors = " << neighborSchedules.size();
 	for(map<int, Schedule>::iterator it = neighborSchedules.begin(); it != neighborSchedules.end(); it++) {
 		trace() << "Neighbor : " << it->first;
 		trace() << "Schedule ";
 		Schedule schedule = it->second;
-		trace() << "Discovered at slot = " << schedule.currentSlotNo << " time = " << schedule.discAt ;
+		diff = rendezvousPerNeighbor[it->first].diff;
+		trace() << "Discovered at slot = " << schedule.currentSlotNo << " time = " << schedule.discAt << " Diff = " << diff << " mod p1 = " << (diff % primePair[0]) << " mod p2 = " << (diff %primePair[1]);
 		trace() << "Prime1 " << schedule.primePair[0] << " Prime2 " << schedule.primePair[1];
+		aQueue = &(msgQueues[it->first]);
+		trace() << "QueueSize to " << it->first << " = " << aQueue->msgs.size();
+		while( !aQueue->msgs.empty() ) {
+			xi += aQueue->msgs.front().xi;
+			wi += aQueue->msgs.front().wi;
+			aQueue->msgs.pop();
+			totalQueueSize++;
+		}
 		trace() << "";
 	}
 
-	for(map<int, MsgQueue>::iterator it = msgQueues.begin(); it != msgQueues.end(); it++) {
+/*	for(map<int, MsgQueue>::iterator it = msgQueues.begin(); it != msgQueues.end(); it++) {
 		aQueue = &(it->second);
 		trace() << "QueueSize to " << it->first << " = " << aQueue->msgs.size();
 		while( !aQueue->msgs.empty() ) {
@@ -812,7 +843,7 @@ void Disco::finishSpecific() {
 			aQueue->msgs.pop();
 			totalQueueSize++;
 		}
-	}
+	}*/
 	trace() << "Final Average " << xi/wi << " " << xi << " " << wi;
 
 	collectOutput("Stats", "Sent ", gSend);

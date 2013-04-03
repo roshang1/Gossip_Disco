@@ -57,7 +57,9 @@ private:
 	map<int, RendezvousSchedule> rendezvousPerNeighbor;
 	map<int, MsgQueue> msgQueues;
 	int lastSeq, lastPeer;
-	int stopAfter;
+	int forcedStopCounter;
+	double stopAt, stopCounter;
+	bool stopGossip;
 
 	//Statistics
 	int gSend, gReceive, gForward, gReached, gMidway, packetsTrans, packetsRecvd;

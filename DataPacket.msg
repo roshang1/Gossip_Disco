@@ -23,7 +23,7 @@ struct GossipData {
    	double wi;
    	short H;
    	short hops;
-   	short stopped;
+   	bool stopped;
    	float targetX;
    	float targetY;
    	double averages[7];
