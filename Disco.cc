@@ -209,15 +209,25 @@ void Disco::timerFiredCallback(int type) {
 
 			//Wake up and transmit
 			trace() << "Up." << counter;
-			//To Do: Different behaviour of radio at startup while in neighbor disc or gossip phase.
-			if (unifRandom() > 0.5 ) {
-				toNetworkLayer(createRadioCommand(SET_STATE, TX));
-				transmitBeacon();
-			} else {
-				toNetworkLayer(createRadioCommand(SET_STATE, RX));
-				//temp = "3ms";
-				//setTimer(TRANSMIT_BEACON, STR_SIMTIME(temp.c_str()));
+
+			if(!shutNeighborDisc) {
+				//Neighbor discovery phase is on.
+				if (unifRandom() > 0.5 ) {
+					toNetworkLayer(createRadioCommand(SET_STATE, TX));
+					transmitBeacon();
+				} else {
+					toNetworkLayer(createRadioCommand(SET_STATE, RX));
+					//temp = "3ms";
+					//setTimer(TRANSMIT_BEACON, STR_SIMTIME(temp.c_str()));
+				}
+			} else if(shutNeighborDisc && isNeighborAwake) {
+				//Gossip phase is on.
+				if(adjustSlotSize) //Slave or the one who waits for the meeting pair to initiate gossip communication.
+					toNetworkLayer(createRadioCommand(SET_STATE, RX));
+				else // Master or the one who initiates gossip communication.
+					toNetworkLayer(createRadioCommand(SET_STATE, TX));
 			}
+
 
 			isAsleep = false;
 			if(isNeighborAwake) {

@@ -11,13 +11,34 @@
 
 using namespace std;
 
-int primePairs[4][2] = {
-		{23, 157},
+int primePairs[10][2] = {
+		//5
+		/*{23, 157},
 		{29, 67},
 		{31, 53},
 		{37, 43}
+		*/
+		//10
+/*		{11,109},
+		{13,43},
+		{17,23},
+		{19,23}*/
+
+		//2
+
+		 {53,449},
+{59,331},
+{61,277},
+{67,197},
+{71,167},
+{73,157},
+{79,137},
+{83,127},
+{89,113},
+{97,103}
+
 };
-int totalPrimes = 4;
+int totalPrimes = 10;
 
 enum TIMERS {
 	START_OF_SLOT = 1, GO_TO_SLEEP = 2, NO_OPERATION= 3, GENERATE_SAMPLE = 4, TRANSMIT_BEACON = 5, TEST = 6, SAMPLE_AVG = 7
